@@ -132,8 +132,8 @@ typeSettings = {
         "blockCommentEndPattern": re.compile(r'\*/\s*$'),
         "lineCommentStartPattern": re.compile(r'\s*//'),
         "lineCommentEndPattern": None,
-        "headerStartLine": "/*\n",
-        "headerEndLine": " */\n",
+        "headerStartLine": "/****************************************************************************\n",
+        "headerEndLine": " ****************************************************************************/\n",
         "headerLinePrefix": " * ",
         "headerLineSuffix": None
     },
@@ -605,6 +605,7 @@ def main():
         template_lines = None
         start_dir = arguments.dir
         settings = {}
+        tmpl_file = ""
         if arguments.years:
             settings["years"] = arguments.years
         if arguments.owner:
@@ -633,7 +634,8 @@ def main():
                 tmpl_name = tmpls[0][0]
                 tmpl_file = tmpls[0][1]
                 LOGGER.info("Using template {}".format(tmpl_name))
-                template_lines = read_template(tmpl_file, settings, arguments)
+                # af
+                #template_lines = read_template(tmpl_file, settings, arguments)
             else:
                 if len(tmpls) == 0:
                     # check if we can interpret the option as file
@@ -666,6 +668,8 @@ def main():
                     LOGGER.debug("Skipping file with non-matching extension: {}".format(file))
                     continue
                 LOGGER.debug("Processing file: %s", file)
+                settings["filepath"] = file
+                template_lines = read_template(tmpl_file, settings, arguments)
                 finfo = read_file(file, arguments)
                 if not finfo:
                     LOGGER.debug("File not supported %s", file)
