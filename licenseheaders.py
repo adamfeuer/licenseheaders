@@ -673,7 +673,11 @@ def main():
                     LOGGER.debug("Skipping file with non-matching extension: {}".format(file))
                     continue
                 LOGGER.debug("Processing file: %s", file)
-                settings["filepath"] = file
+                # remove leading ./
+                filepath = file
+                if filepath.startswith("./"):
+                    filepath = filepath[2:]
+                settings["filepath"] = filepath
                 template_lines = read_template(tmpl_file, settings, arguments)
                 finfo = read_file(file, arguments)
                 if not finfo:
