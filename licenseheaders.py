@@ -37,6 +37,7 @@ __version__ = '0.8.3'
 __author__ = 'Johann Petrak'
 __license__ = 'MIT'
 
+logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.DEBUG)
 LOGGER = logging.getLogger(__name__)
 
 # for each processing type, the detailed settings of how to process files of that type
@@ -323,6 +324,7 @@ def parse_command_line(argv):
                         help="Encoding of program files (default: {})".format(default_encoding))
     parser.add_argument("--safesubst", action="store_true",
                         help="Do not raise error if template variables cannot be substituted.")
+    parser.add_argument("-N", action="store_true", help="Do not add headers, only write out the file (useful for changing encodings)")
     parser.add_argument("-D", action="store_true", help="Enable debug messages (same as -v -v -v)")
     parser.add_argument("-E", type=str, nargs="*", help="If specified, restrict processing to the specified extension(s) only")
     parser.add_argument("--additional-extensions", dest="additional_extensions", default=None, nargs="+",
@@ -331,11 +333,12 @@ def parse_command_line(argv):
                         action=DictArgs)
     arguments = parser.parse_args(argv[1:])
 
-    # Sets log level to WARN going more verbose for each new -V.
+    # Sets log level to WARN going more verbose for each new -v.
     loglevel = max(4 - arguments.verbose_count, 1) * 10
     LOGGER.setLevel(loglevel)
     if arguments.D:
         LOGGER.setLevel(logging.DEBUG)
+    LOGGER.info("Logger starting")
     return arguments
 
 
@@ -429,6 +432,7 @@ def read_file(file, args):
     filename, extension = os.path.splitext(file)
     LOGGER.debug("File name is %s", os.path.basename(filename))
     LOGGER.debug("File extension is %s", extension)
+    sys.stderr.flush()
     # if we have no entry in the mapping from extensions to processing type, return None
     ftype = ext2type.get(extension)
     logging.debug("Type for this file is %s", ftype)
@@ -437,7 +441,8 @@ def read_file(file, args):
         if not ftype:
             return None
     settings = typeSettings.get(ftype)
-    with open(file, 'r', encoding=args.encoding) as f:
+    #with open(file, 'r', encoding=args.encoding, errors="surrogateescape") as f:
+    with open(file, 'r', encoding=args.encoding, errors="ignore") as f:
         lines = f.readlines()
     # now iterate throw the lines and try to determine the various indies
     # first try to find the start of the header: skip over shebang or empty lines
@@ -680,8 +685,13 @@ def main():
                     "Info for the file: headStart=%s, headEnd=%s, haveLicense=%s, skip=%s, len=%s, yearsline=%s",
                     finfo["headStart"], finfo["headEnd"], finfo["haveLicense"], finfo["skip"], len(lines),
                     finfo["yearsLine"])
+                # just write the file out as-is
+                if arguments.N:
+                    make_backup(file, arguments)
+                    with open(file, 'w', encoding=arguments.encoding) as fw:
+                        fw.writelines(lines)
                 # if we have a template: replace or add
-                if template_lines:
+                elif template_lines:
                     make_backup(file, arguments)
                     with open(file, 'w', encoding=arguments.encoding) as fw:
                         # if we found a header, replace it
