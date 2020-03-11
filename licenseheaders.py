@@ -133,9 +133,12 @@ typeSettings = {
         "blockCommentEndPattern": re.compile(r'\*/\s*$'),
         "lineCommentStartPattern": re.compile(r'\s*//'),
         "lineCommentEndPattern": None,
-        "headerStartLine": "/****************************************************************************\n",
-        "headerEndLine": " ****************************************************************************/\n",
+        "headerStartLine": "/***\n",
+        "headerEndLine": " ***/\n",
         "headerLinePrefix": " * ",
+        "headerLineStartChar": "/",
+        "headerLineEndChar": "/",
+        "headerLineChar": "*",
         "headerLineSuffix": None
     },
     "ruby": {
@@ -324,9 +327,10 @@ def parse_command_line(argv):
                         help="Encoding of program files (default: {})".format(default_encoding))
     parser.add_argument("--safesubst", action="store_true",
                         help="Do not raise error if template variables cannot be substituted.")
-    parser.add_argument("-N", action="store_true", help="Do not add headers, only write out the file (useful for changing encodings)")
+    parser.add_argument("--encoding-only", "-N", action="store_true", help="Do not add headers, only write out the file (useful for changing encodings)")
     parser.add_argument("-D", action="store_true", help="Enable debug messages (same as -v -v -v)")
     parser.add_argument("-E", type=str, nargs="*", help="If specified, restrict processing to the specified extension(s) only")
+    parser.add_argument("--files", "-F", type=str, nargs="*", help="If specified, restrict processing to the specified files(s) only")
     parser.add_argument("--additional-extensions", dest="additional_extensions", default=None, nargs="+",
                         help="Provide a comma-separated list of additional file extensions as value for a "
                              "specified language as key, each with a leading dot and no whitespace (default: None).",
@@ -380,7 +384,7 @@ def read_template(template_file, vardict, args):
     return lines
 
 
-def for_type(templatelines, ftype):
+def for_type(templatelines, ftype, finfo):
     """
     Format the template lines for the given ftype.
     :param templatelines: the lines of the template text
@@ -389,8 +393,14 @@ def for_type(templatelines, ftype):
     """
     lines = []
     settings = typeSettings[ftype]
-    header_start_line = settings["headerStartLine"]
-    header_end_line = settings["headerEndLine"]
+    if ftype != "c":
+    # if True:
+        header_start_line = settings["headerStartLine"]
+        header_end_line = settings["headerEndLine"]
+    else:
+        header_length = finfo["headerLength"] - 1
+        header_start_line = settings["headerLineStartChar"] + (settings["headerLineChar"] * header_length) + '\n'
+        header_end_line = ' ' + (settings["headerLineChar"] * header_length) + settings["headerLineEndChar"] + '\n'
     header_line_prefix = settings["headerLinePrefix"]
     header_line_suffix = settings["headerLineSuffix"]
     if header_start_line is not None:
@@ -423,6 +433,7 @@ def read_file(file, args):
       - yearsLine: index of line which contains the copyright years, or None
       - haveLicense: found a line that matches a pattern that indicates this could be a license header
       - settings: the type settings
+      - headerLength: length of the license header line
     """
     skip = 0
     head_start = None
@@ -435,7 +446,7 @@ def read_file(file, args):
     sys.stderr.flush()
     # if we have no entry in the mapping from extensions to processing type, return None
     ftype = ext2type.get(extension)
-    logging.debug("Type for this file is %s", ftype)
+    LOGGER.debug("Type for this file is %s", ftype)
     if not ftype:
         ftype = name2type.get(os.path.basename(filename))
         if not ftype:
@@ -452,6 +463,7 @@ def read_file(file, args):
     line_comment_start_pattern = settings.get("lineCommentStartPattern")
     i = 0
     LOGGER.info("Processing file {} as {}".format(file, ftype))
+    header_length = len(settings.get("headerStartLine"))
     for line in lines:
         if i == 0 and keep_first and keep_first.findall(line):
             skip = i + 1
@@ -459,6 +471,7 @@ def read_file(file, args):
             pass
         elif block_comment_start_pattern and block_comment_start_pattern.findall(line):
             head_start = i
+            header_length = len(line) - 1
             break
         elif line_comment_start_pattern and line_comment_start_pattern.findall(line):
             head_start = i
@@ -478,7 +491,8 @@ def read_file(file, args):
                     "headEnd": None,
                     "yearsLine": None,
                     "settings": settings,
-                    "haveLicense": have_license
+                    "haveLicense": have_license,
+                    "headerLength": header_length,
                     }
         i = i + 1
     LOGGER.debug("Found preliminary start at {}, i={}, lines={}".format(head_start, i, len(lines)))
@@ -493,7 +507,8 @@ def read_file(file, args):
                 "headEnd": head_end,
                 "yearsLine": years_line,
                 "settings": settings,
-                "haveLicense": have_license
+                "haveLicense": have_license,
+                "headerLength": header_length,
                 }
     # otherwise process the comment block until it ends
     if block_comment_start_pattern:
@@ -510,7 +525,8 @@ def read_file(file, args):
                         "headEnd": j,
                         "yearsLine": years_line,
                         "settings": settings,
-                        "haveLicense": have_license
+                        "haveLicense": have_license,
+                        "headerLength": header_length,
                         }
             elif yearsPattern.findall(lines[j]):
                 have_license = True
@@ -525,7 +541,8 @@ def read_file(file, args):
                 "headEnd": None,
                 "yearsLine": None,
                 "settings": settings,
-                "haveLicense": have_license
+                "haveLicense": have_license,
+                "headerLength": header_length,
                 }
     else:
         LOGGER.debug("ELSE1")
@@ -667,7 +684,10 @@ def main():
             # now process all the files and either replace the years or replace/add the header
             LOGGER.debug("Processing directory %s", start_dir)
             LOGGER.debug("Patterns: %s", patterns)
-            paths = get_paths(patterns, start_dir)
+            if arguments.files:
+                paths = arguments.files
+            else:
+                paths = get_paths(patterns, start_dir)
             for file in paths:
                 if limit2exts is not None and not any([file.endswith(ext) for ext in limit2exts]):
                     LOGGER.debug("Skipping file with non-matching extension: {}".format(file))
@@ -678,8 +698,8 @@ def main():
                 if filepath.startswith("./"):
                     filepath = filepath[2:]
                 settings["filepath"] = filepath
-                template_lines = read_template(tmpl_file, settings, arguments)
                 finfo = read_file(file, arguments)
+                template_lines = read_template(tmpl_file, settings, arguments)
                 if not finfo:
                     LOGGER.debug("File not supported %s", file)
                     continue
@@ -690,7 +710,7 @@ def main():
                     finfo["headStart"], finfo["headEnd"], finfo["haveLicense"], finfo["skip"], len(lines),
                     finfo["yearsLine"])
                 # just write the file out as-is
-                if arguments.N:
+                if arguments.encoding_only:
                     make_backup(file, arguments)
                     with open(file, 'w', encoding=arguments.encoding) as fw:
                         fw.writelines(lines)
@@ -710,13 +730,13 @@ def main():
                             # first write the lines before the header
                             fw.writelines(lines[0:head_start])
                             #  now write the new header from the template lines
-                            fw.writelines(for_type(template_lines, ftype))
+                            fw.writelines(for_type(template_lines, ftype, finfo))
                             #  now write the rest of the lines
                             fw.writelines(lines[head_end + 1:])
                         else:
                             LOGGER.debug("Adding header to file {}, skip={}".format(file, skip))
                             fw.writelines(lines[0:skip])
-                            fw.writelines(for_type(template_lines, ftype))
+                            fw.writelines(for_type(template_lines, ftype, finfo))
                             fw.writelines(lines[skip:])
                     # TODO: optionally remove backup if all worked well?
                 else:
