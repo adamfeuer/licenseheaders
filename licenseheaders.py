@@ -133,6 +133,7 @@ typeSettings = {
         "blockCommentEndPattern": re.compile(r'\*/\s*$'),
         "lineCommentStartPattern": re.compile(r'\s*//'),
         "lineCommentEndPattern": None,
+        "copyrightLinePattern": re.compile(r'^.*(Copyright|Licensed)'),
         "headerStartLine": "/***\n",
         "headerEndLine": " ***/\n",
         "headerLinePrefix": " * ",
@@ -461,9 +462,13 @@ def read_file(file, args):
     block_comment_start_pattern = settings.get("blockCommentStartPattern")
     block_comment_end_pattern = settings.get("blockCommentEndPattern")
     line_comment_start_pattern = settings.get("lineCommentStartPattern")
+    copyright_line_pattern = settings.get("copyrightLinePattern")
+    if copyright_line_pattern:
+        LOGGER.debug("Copyright line pattern exists")
     i = 0
     LOGGER.info("Processing file {} as {}".format(file, ftype))
     header_length = len(settings.get("headerStartLine"))
+    description_lines = ""
     for line in lines:
         if i == 0 and keep_first and keep_first.findall(line):
             skip = i + 1
@@ -493,6 +498,7 @@ def read_file(file, args):
                     "settings": settings,
                     "haveLicense": have_license,
                     "headerLength": header_length,
+                    "descriptionLines": description_lines,
                     }
         i = i + 1
     LOGGER.debug("Found preliminary start at {}, i={}, lines={}".format(head_start, i, len(lines)))
@@ -509,12 +515,24 @@ def read_file(file, args):
                 "settings": settings,
                 "haveLicense": have_license,
                 "headerLength": header_length,
+                "descriptionLines": description_lines,
                 }
     # otherwise process the comment block until it ends
     if block_comment_start_pattern:
         LOGGER.debug("Found comment start, process until end")
         for j in range(i, len(lines)):
             LOGGER.debug("Checking line {}".format(j))
+            if copyright_line_pattern and copyright_line_pattern.findall(lines[j]):
+                LOGGER.debug("Found copyright line")
+                for dline in lines[2:j-1]:
+                    if dline.strip() == "*":
+                        description_lines += "\n"
+                    else:
+                        description_lines += dline
+                if len(description_lines) > 0:
+                    description_lines += settings.get("headerLinePrefix") + '\n'
+                description_lines = description_lines.rstrip()
+                LOGGER.debug(description_lines.replace('\n', '.'))
             if licensePattern.findall(lines[j]):
                 have_license = True
             elif block_comment_end_pattern.findall(lines[j]):
@@ -527,6 +545,7 @@ def read_file(file, args):
                         "settings": settings,
                         "haveLicense": have_license,
                         "headerLength": header_length,
+                        "descriptionLines": description_lines,
                         }
             elif yearsPattern.findall(lines[j]):
                 have_license = True
@@ -543,6 +562,7 @@ def read_file(file, args):
                 "settings": settings,
                 "haveLicense": have_license,
                 "headerLength": header_length,
+                "descriptionLines": description_lines,
                 }
     else:
         LOGGER.debug("ELSE1")
@@ -558,7 +578,9 @@ def read_file(file, args):
                         "headEnd": j - 1,
                         "yearsLine": years_line,
                         "settings": settings,
-                        "haveLicense": have_license
+                        "haveLicense": have_license,
+                        "headerLength": header_length,
+                        "descriptionLines": description_lines,
                         }
             elif yearsPattern.findall(lines[j]):
                 have_license = True
@@ -573,7 +595,9 @@ def read_file(file, args):
                 "headEnd": len(lines) - 1,
                 "yearsLine": years_line,
                 "settings": settings,
-                "haveLicense": have_license
+                "haveLicense": have_license,
+                "headerLength": header_length,
+                "descriptionLines": description_lines,
                 }
 
 
@@ -656,8 +680,6 @@ def main():
                 tmpl_name = tmpls[0][0]
                 tmpl_file = tmpls[0][1]
                 LOGGER.info("Using template {}".format(tmpl_name))
-                # af
-                #template_lines = read_template(tmpl_file, settings, arguments)
             else:
                 if len(tmpls) == 0:
                     # check if we can interpret the option as file
@@ -699,6 +721,7 @@ def main():
                     filepath = filepath[2:]
                 settings["filepath"] = filepath
                 finfo = read_file(file, arguments)
+                settings["descriptionLines"] = finfo.get("descriptionLines", "")
                 template_lines = read_template(tmpl_file, settings, arguments)
                 if not finfo:
                     LOGGER.debug("File not supported %s", file)
