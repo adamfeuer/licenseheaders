@@ -4,6 +4,7 @@
 """A tool to change or add license headers in all supported files in or below a directory."""
 
 # Copyright (c) 2016-2018 Johann Petrak
+# Copyright (c) 2020 Adam Feuer
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -328,10 +329,11 @@ def parse_command_line(argv):
                         help="Encoding of program files (default: {})".format(default_encoding))
     parser.add_argument("--safesubst", action="store_true",
                         help="Do not raise error if template variables cannot be substituted.")
-    parser.add_argument("--encoding-only", "-N", action="store_true", help="Do not add headers, only write out the file (useful for changing encodings)")
+    parser.add_argument("--encoding-only", "-C", action="store_true", help="Do not add headers, only write out the file (useful for changing encodings)")
     parser.add_argument("-D", action="store_true", help="Enable debug messages (same as -v -v -v)")
     parser.add_argument("-E", type=str, nargs="*", help="If specified, restrict processing to the specified extension(s) only")
     parser.add_argument("--files", "-F", type=str, nargs="*", help="If specified, restrict processing to the specified files(s) only")
+    parser.add_argument("--namesfile", "-N", type=str, help="If specified, read filenames from this file (one per line) and restrict processing to those files(s) only")
     parser.add_argument("--additional-extensions", dest="additional_extensions", default=None, nargs="+",
                         help="Provide a comma-separated list of additional file extensions as value for a "
                              "specified language as key, each with a leading dot and no whitespace (default: None).",
@@ -532,7 +534,6 @@ def read_file(file, args):
                 if len(description_lines) > 0:
                     description_lines += settings.get("headerLinePrefix") + '\n'
                 description_lines = description_lines.rstrip()
-                LOGGER.debug(description_lines.replace('\n', '.'))
             if licensePattern.findall(lines[j]):
                 have_license = True
             elif block_comment_end_pattern.findall(lines[j]):
@@ -619,13 +620,12 @@ def main():
     # init: create the ext2type mappings
     arguments = parse_command_line(sys.argv)
     additional_extensions = arguments.additional_extensions
+    names = []
     for t in typeSettings:
         settings = typeSettings[t]
         exts = settings["extensions"]
-        if "filenames" in settings:
-            names = settings['filenames']
-        else:
-            names = []
+        if "files" in settings:
+            pathnames = settings['files']
         # if additional file extensions are provided by the user, they are "merged" here:
         if additional_extensions and t in additional_extensions:
             for aext in additional_extensions[t]:
@@ -699,14 +699,18 @@ def main():
                 LOGGER.error("No template specified and no years either, nothing to do (use -h option for usage info)")
                 error = True
         if not error:
-            # logging.debug("Got template lines: %s",templateLines)
             # now do the actual processing: if we did not get some error, we have a template loaded or
             # no template at all
             # if we have no template, then we will have the years.
             # now process all the files and either replace the years or replace/add the header
             LOGGER.debug("Processing directory %s", start_dir)
             LOGGER.debug("Patterns: %s", patterns)
-            if arguments.files:
+            if arguments.namesfile:
+                namesfilename = arguments.namesfile
+                with open(namesfilename) as namesfile:
+                    paths = [filepath.strip() for filepath in namesfile.readlines()]
+                LOGGER.info(paths)
+            elif arguments.files:
                 paths = arguments.files
             else:
                 paths = get_paths(patterns, start_dir)
